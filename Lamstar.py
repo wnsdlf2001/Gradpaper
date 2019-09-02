@@ -18,10 +18,12 @@ class lamstar(object):
         '''
         Constructor
         '''
+        self.CriticalLink =[]
         self.debug = 1
         self.noOfInputs = noOfInputs
         self.noOfOutputs = noOfOutputs
         self.inputSOMs = []
+        self.inputSOM = []
         self.outputSOMs = []
         for _ in range(noOfInputs):
             self.inputSOMs.append(somModule(1))
@@ -31,7 +33,7 @@ class lamstar(object):
         self.Link2OutputDict = {}
         self.Link2LinkDict = {}
 
-    def train(self, inputs, outputs):
+    def train(self, inputs, outputs, threshold):
         '''
         In BMU we store in form of list of tuples, the link between BMU
         in the respective SOM and the respective output
@@ -39,21 +41,15 @@ class lamstar(object):
         '''
         prevNode = None
         for i in range(self.noOfInputs):
-            if(self.debug > 1):
-                print('Training inPat = %s outPat = %s' % (inputs, outputs))
-
-            nextNode = self.inputSOMs[i].train(array(inputs))
-            self.reward((i, nextNode, outputs))
-
+            nextNode = self.inputSOMs[i].train(array(inputs[i]), threshold) # 노드를 생성하면서 트레이닝
+            if i != 0:
+                self.reward((i, prevNode, nextNode, outputs)) # 리워딩 작업 # (시작 모듈, 출발노드, 도착노드, 아웃풋) : 웨이트
             prevNode = nextNode
-        if self.debug > 0:
-            print('Links2Output = %s' %str(self.Link2OutputDict))
-            #raw_input('Enter')
+        self.forget() # 포겟팅 작업
 
-        self.forget()
 
     def reward(self, key):
-        if key in self.Link2OutputDict:
+        if key in self.Link2OutputDict.keys():
             self.Link2OutputDict[key] += 1
         else:
             self.Link2OutputDict[key] = 1
@@ -68,9 +64,11 @@ class lamstar(object):
         The Algorithm goes to sleep for regeneration :)
         '''
         self.hashTable = {}
-        for key in self.LinkTable.keys():
-            print (key, key[0])
+        for key in self.Link2OutputDict.keys():
+            print(key, key[0])
             self.hashTable.setdefault(key[0], []).append(key)
+        self.hashTable = self.Link2OutputDict
+        return self.hashTable
 
     def query(self, inputs):
         '''
@@ -78,28 +76,73 @@ class lamstar(object):
         (somModule,BMU(best somNode in somModule)).
         '''
 
+
         BMU = []
+        PrevNode = None
         for i in range(self.noOfInputs):
-            idx = self.inputSOMs[i].query(inputs[i], self.Link2OutputDict, i)
-            BMU.append((i, idx))
-        if self.debug > 0:
-            print('[(somModule,somNode) ...]')
-            print('BMU = %s' % BMU)
+            NextNode = self.inputSOMs[i].query(inputs[i], self.Link2OutputDict, i)
+            if i !=0:
+                BMU.append((i, PrevNode, NextNode))  # list(self.Link2OutputDict.keys())[i][2]))
+            PrevNode = NextNode
+
+
+        db1 = defaultdict(list)
+        for ahash in BMU:
+            for key in self.Link2OutputDict.keys():
+                if key[0:3] == ahash:
+                    db1[key[-1]].append((key[0:3] , self.Link2OutputDict[key]))
+
+        w = [[] for row in range(len(db1))]
+        idx = 0
+        for x in db1:
+            for i in range(len(db1[x])):
+                w[idx].append(db1[x][i][1])
+            idx +=1
+        '''
+        idx = 0
+        resultset = [[] for row in range(len(db1))]
+        for m in range(len(w)):
+            for k in range(len(w[m])):
+                for i in range(k, len(w[m])):
+                    result = 0
+                    for j in range(k, i+1):
+                        result += w[m][j]
+                        div = i+1
+                    resultset[idx].append(result/div)
+            idx +=1'''
         db = defaultdict(list)
         for ahash in BMU:
             for key in self.Link2OutputDict.keys():
-                if key[0:2] == ahash:
+                if key[0:3] == ahash:
                     db[key[-1]].append(self.Link2OutputDict[key])
-                    print('key=%s db[key[-1]=%s' % (key, db[key[-1]]))
+       #             print('key=%s db[key[-1]=%s' % (key, db[key[-1]]))
 
-        if self.debug > 0:
-            print('Scores:')
-            for key in db.keys():
-                print('%s = %s' % (key, str(sum(db[key]))))
-        print('Result is:')
-        print(self.maxFromDict(db))
-        #raw_input('Enter')
-        return (self.maxFromDict(db), BMU)
+        #for x in db:
+
+
+        flag = 0
+        '''
+        for j in range(0,len(BMU)):
+            if j == 0:
+                print(" Node    Weight    ",end='')
+                for i in db1:
+                    print("to "+ str(int(i))+"          ", end='')
+                print("")
+            print(str(BMU[j][1]) + " -> "+str(BMU[j][2]) +" : ",end='')
+            for i in db1:
+                    print(str(db1[i][j][1])+"   ", end='')
+            print("")
+
+
+        print('Scores for each outputs  : ')
+        for key in db.keys():
+            print('"%s" = %s' % (int(key), str(sum(db[key]))))
+        print("result is " + str(int(self.maxFromDict(db))))
+        '''
+       # return result
+        return self.maxFromDict(db)#(self.maxFromDict(db), BMU)
+
+
 
     def printSOMs(self):
         for i in range(self.noOfInputs):
@@ -121,11 +164,12 @@ class lamstar(object):
         return len(self.Link2OutputDict)
 
     def printTable(self):
-        for key in sorted(self.LinkTable.keys()):
+        for key in self.LinkTable.keys():
             print('%s %s' % (key, self.LinkTable[key]))
 
     def maxFromDict(self, dictionary):
-        return max(dictionary.iteritems(), key=lambda item: sum(item[1]))[0]
+        #return min(dictionary.items(), key=lambda item: sum(item[1])/float(len(item[1])))[0]
+        return max(dictionary.items(), key=lambda item: sum(item[1]))[0]
 
 
 if __name__ == '__main__':
